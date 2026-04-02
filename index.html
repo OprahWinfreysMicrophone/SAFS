@@ -335,6 +335,19 @@ body{font-family:'Sora',sans-serif;color:var(--txt);overscroll-behavior:none;-we
 /* ── PARENT SCREEN ── */
 .s-parent{display:none;flex-direction:column;flex:1;overflow:hidden;}
 .s-parent.active{display:flex;}
+/* ── PAUSED OVERLAY ── */
+#paused-overlay{position:fixed;inset:0;z-index:9950;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+#paused-overlay.visible{display:flex;}
+.paused-box{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:36px 28px;text-align:center;box-shadow:var(--shadow-lg);max-width:300px;width:90%;}
+.paused-icon{font-size:48px;margin-bottom:16px;}
+.paused-title{font-size:22px;font-weight:800;color:var(--txt);letter-spacing:-.4px;margin-bottom:8px;}
+.paused-sub{font-size:13px;color:var(--txt3);margin-bottom:24px;line-height:1.6;}
+.paused-resume-btn{background:var(--accent);border:none;border-radius:var(--radius-sm);padding:15px;width:100%;cursor:pointer;font-family:'Sora',sans-serif;font-size:15px;font-weight:700;color:#fff;}
+.paused-resume-btn:active{transform:scale(.97);}
+
+/* ── SAVE BAR FLASH ── */
+@keyframes saveBarFlash{0%,100%{transform:scale(1);}20%{transform:scale(1.04);}40%{transform:scale(.98);}60%{transform:scale(1.02);}80%{transform:scale(.99);}}
+.save-bar-flash{animation:saveBarFlash .45s ease;}
 #parent-save-bar{display:none;background:var(--accent);padding:10px 16px;gap:10px;align-items:center;z-index:200;flex-shrink:0;}
 #parent-save-bar span{font-size:13px;font-weight:600;color:#fff;flex:1;}
 .psb-btn{border:none;border-radius:var(--radius-xs);padding:8px 16px;cursor:pointer;font-family:'Sora',sans-serif;font-size:12px;font-weight:700;}
@@ -631,6 +644,16 @@ body{font-family:'Sora',sans-serif;color:var(--txt);overscroll-behavior:none;-we
     <div class="scb-xp" id="break-timer-display" style="color:var(--accent);">10:00</div>
     <div class="scb-sub" id="break-sub">Rest up. School resumes when the timer ends.</div>
     <button class="btn btn-primary" onclick="endBreak()" style="margin-top:0;">I'm ready - skip break</button>
+  </div>
+</div>
+
+<!-- PAUSED OVERLAY -->
+<div id="paused-overlay">
+  <div class="paused-box">
+    <div class="paused-icon">⏸</div>
+    <div class="paused-title">Timer paused</div>
+    <div class="paused-sub" id="paused-sub">Take a breath. Tap Resume when you're ready.</div>
+    <button class="paused-resume-btn" onclick="toggleTimer()">Resume</button>
   </div>
 </div>
 
@@ -1367,8 +1390,8 @@ function getRankData(){
 function nav(screen){
   // Block leaving parent if there are unsaved changes
   if(el('s-parent').classList.contains('active')&&STAGING&&_stagingDirty()){
-    if(!confirm('You have unsaved changes. Save or discard before leaving.'))return;
-    cancelParentChanges();
+    flashSaveBar();
+    return;
   }
   var screens=['home','lessons','tasks','rewards','report','parent'];
   screens.forEach(function(s){
@@ -1517,6 +1540,7 @@ function loadLesson(idx){
   timerPaused=false;
   warnTriggered=false;
   el('timer-pause-btn').textContent='Pause';
+  el('paused-overlay').classList.remove('visible');
   el('lh-subject').textContent=s.name;
   el('lh-desc').textContent=s.notes||('Work on '+s.name+' for '+s.duration+' minutes');
   el('lh-progress').textContent='Subject '+(idx+1)+' of '+lessons.length;
@@ -1594,8 +1618,19 @@ function schoolTimerTick(){
 function toggleTimer(){
   timerPaused=!timerPaused;
   el('timer-pause-btn').textContent=timerPaused?'Resume':'Pause';
-  if(!timerPaused&&!schoolTimerInterval){
-    schoolTimerInterval=setInterval(schoolTimerTick,1000);
+  var overlay=el('paused-overlay');
+  if(timerPaused){
+    // Show subject name in paused overlay
+    var lessons=getTodaySubjects();
+    var idx=DB.getSchoolCurIdx();
+    var subj=lessons[idx]?lessons[idx].name:'';
+    el('paused-sub').textContent=subj?subj+' is paused. Tap Resume when ready.':'Tap Resume when ready.';
+    overlay.classList.add('visible');
+  } else {
+    overlay.classList.remove('visible');
+    if(!schoolTimerInterval){
+      schoolTimerInterval=setInterval(schoolTimerTick,1000);
+    }
   }
 }
 
@@ -1783,16 +1818,10 @@ function renderParent(){
   ptab('subjects');
 }
 
-// Close any open color picker dropdowns when clicking outside
-document.addEventListener('click',function(){
-  document.querySelectorAll('.color-picker-dropdown.open').forEach(function(d){d.classList.remove('open');});
-  document.querySelectorAll('.color-picker-arrow').forEach(function(a){a.textContent='▼';});
-});
-
 function ptab(name){
-  // Guard: if STAGING has unsaved edits, warn before switching tabs
   if(STAGING&&_stagingDirty()){
-    if(!confirm('You have unsaved changes. Save or discard them before switching tabs.'))return;
+    flashSaveBar();
+    return;
   }
   document.querySelectorAll('.ptab').forEach(function(t){t.classList.remove('active');});
   document.querySelectorAll('.ptab-content').forEach(function(c){c.classList.remove('active');});
@@ -1803,6 +1832,20 @@ function ptab(name){
   else if(name==='rewards')renderRewardEditor();
   else if(name==='settings')renderSettingsEditor();
 }
+
+function flashSaveBar(){
+  var bar=el('parent-save-bar');
+  bar.classList.remove('save-bar-flash');
+  void bar.offsetWidth;
+  bar.classList.add('save-bar-flash');
+  setTimeout(function(){bar.classList.remove('save-bar-flash');},500);
+}
+
+// Close any open color picker dropdowns when clicking outside
+document.addEventListener('click',function(){
+  document.querySelectorAll('.color-picker-dropdown.open').forEach(function(d){d.classList.remove('open');});
+  document.querySelectorAll('.color-picker-arrow').forEach(function(a){a.textContent='▼';});
+});
 
 function _stagingDirty(){
   // True if STAGING differs from DB in any meaningful way
@@ -2002,7 +2045,10 @@ function applyStackTheme(t){
 }
 
 function setStackTheme(t){
-  if(!STAGING)startEditing();STAGING.config.stackTheme=t;applyStackTheme(t);
+  if(!STAGING)startEditing();
+  STAGING.config.stackTheme=t;
+  applyStackTheme(t);
+  flashSaveBar();
 }
 
 function updateNavLabels(){
