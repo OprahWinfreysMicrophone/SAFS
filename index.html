@@ -17,11 +17,16 @@
 <script>
 (function(){
   try{
-    const saved=JSON.parse(localStorage.getItem('sc_theme'));
-    const sys=window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';
-    const resolved=(!saved||saved==='auto')?sys:saved;
-    if(resolved==='light')document.documentElement.setAttribute('data-theme','light');
-    else if(saved==='dark')document.documentElement.setAttribute('data-theme','dark');
+    var raw=localStorage.getItem('stackd_school_v1');
+    var d=raw?JSON.parse(raw):{};
+    var stackTheme=(d.config&&d.config.stackTheme)||'minimal';
+    // Only Modern follows system; others are forced in JS after boot
+    if(stackTheme==='minimal'||!stackTheme){
+      var userPref=(d.config&&d.config.theme)||'auto';
+      var sys=window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';
+      var resolved=userPref==='auto'?sys:userPref;
+      if(resolved==='light')document.documentElement.setAttribute('data-theme','light');
+    }
   }catch(e){}
 })();
 </script>
@@ -1939,33 +1944,56 @@ function fullReset(){
 function getSystemTheme(){return window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';}
 function getTheme(){return DB.config.theme||'auto';}
 function applyTheme(pref){
-  var root=document.documentElement;
-  var resolved=pref==='auto'?getSystemTheme():pref;
-  root.removeAttribute('data-theme');
-  if(pref==='dark')root.setAttribute('data-theme','dark');
-  else if(pref==='light')root.setAttribute('data-theme','light');
+  // Stack theme may force dark/light — applyStackTheme handles that
+  DB.config.theme=pref;
   applyStackTheme(DB.config.stackTheme||'minimal');
-  var meta=document.querySelector('meta[name="theme-color"]');
-  if(meta)meta.content=resolved==='light'?'#f0fce8':'#0D9488';
-  var btn=el('theme-toggle');if(btn)btn.textContent=resolved==='light'?'🌙':'☀️';
 }
 function toggleTheme(){
   var cur=getTheme();var sys=getSystemTheme();
   var next=cur==='auto'?(sys==='dark'?'light':'dark'):'auto';
-  DB.config.theme=next;DB.save();applyTheme(next);
+  DB.config.theme=next;DB.save();
+  applyStackTheme(DB.config.stackTheme||'minimal');
   showToast(next==='auto'?'Following system':next==='light'?'Light mode':'Dark mode');
 }
-window.matchMedia('(prefers-color-scheme:light)').addEventListener('change',function(){if(getTheme()==='auto')applyTheme('auto');});
+window.matchMedia('(prefers-color-scheme:light)').addEventListener('change',function(){
+  if(getTheme()==='auto')applyStackTheme(DB.config.stackTheme||'minimal');
+});
 
 function applyStackTheme(t){
   var root=document.documentElement;
   root.setAttribute('data-stack-theme',t||'minimal');
   RANKS=THEME_RANKS[t]||THEME_RANKS.minimal;
-  if(t==='ops'||t==='superhero'){root.setAttribute('data-theme','dark');var btn=el('theme-toggle');if(btn)btn.style.display=(t==='superhero'?'':'none');}
-  else if(t==='littlekid'||t==='princess'){root.setAttribute('data-theme','light');var btn=el('theme-toggle');if(btn)btn.style.display='none';}
-  else{var btn=el('theme-toggle');if(btn)btn.style.display='';}
+
+  var btn=el('theme-toggle');
+  var meta=document.querySelector('meta[name="theme-color"]');
+
+  if(t==='ops'){
+    // Always dark, no toggle
+    root.setAttribute('data-theme','dark');
+    if(btn){btn.style.display='none';}
+    if(meta)meta.content='#071409';
+  } else if(t==='superhero'){
+    // Always light, no toggle
+    root.setAttribute('data-theme','light');
+    if(btn){btn.style.display='none';}
+    if(meta)meta.content='#fffde8';
+  } else if(t==='princess'||t==='littlekid'){
+    // Always light, no toggle
+    root.setAttribute('data-theme','light');
+    if(btn){btn.style.display='none';}
+    if(meta)meta.content=t==='littlekid'?'#e8f8d8':'#2a0d40';
+  } else {
+    // Modern: follow user pref or system
+    var pref=DB.config.theme||'auto';
+    var resolved=pref==='auto'?getSystemTheme():pref;
+    root.removeAttribute('data-theme');
+    if(resolved==='light')root.setAttribute('data-theme','light');
+    else if(resolved==='dark')root.setAttribute('data-theme','dark');
+    if(btn){btn.style.display='';btn.textContent=resolved==='light'?'🌙':'☀️';}
+    if(meta)meta.content=resolved==='light'?'#fdf9f3':'#141210';
+  }
+
   updateNavLabels();updateKidName();
-  // Sync picker highlights
   ['ops','superhero','princess','littlekid','minimal'].forEach(function(id){
     var pbtn=el('ptheme-'+id);if(pbtn&&pbtn.classList)pbtn.classList.toggle('theme-opt-active',id===t);
     var sbtn=el('stheme-'+id);if(sbtn&&sbtn.classList)sbtn.classList.toggle('theme-opt-active',id===t);
@@ -2214,7 +2242,7 @@ function wtDone(){el('walkthrough-overlay').style.display='none';DB.config.walkt
 function launchApp(){
   el('splash').classList.add('sp-out');
   el('app').classList.add('ready');
-  applyTheme(getTheme());
+  applyStackTheme(DB.config.stackTheme||'minimal');
   setClock();
   renderHome();
   setInterval(setClock,1000);
@@ -2226,7 +2254,6 @@ function launchApp(){
 async function boot(){
   DB.load();
   RANKS=THEME_RANKS[DB.config.stackTheme]||THEME_RANKS.minimal;
-  applyTheme(DB.config.theme||'auto');
   applyStackTheme(DB.config.stackTheme||'minimal');
   var bootLines=THEME_BOOT[DB.config.stackTheme]||THEME_BOOT.minimal;
   var log=el('boot-log'),bar=el('boot-bar'),pct=el('boot-pct');
